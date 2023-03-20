@@ -1,0 +1,42 @@
+#!/bin/sh
+set -e
+
+destination=/backup_storage
+
+echo "Removing old backups..."
+
+find $destination/daily -maxdepth 1 -mtime +7 -type f -exec rm -v {} \;
+find $destination/weekly -maxdepth 1 -mtime +31 -type f -exec rm -v {} \;
+find $destination/monthly -maxdepth 1 -mtime +365 -type f -exec rm -v {} \;
+
+echo "Creatting dump for ${MYSQLDUMP_HOST}..."
+
+mysqldump -h"$MYSQLDUMP_HOST" \
+  -u"$MYSQLDUMP_USER" \
+  -p"$MYSQLDUMP_PASSWORD" \
+  --single-transaction \
+  --order-by-primary \
+  --compress \
+  --all-databases \
+  --verbose > /backup/mysql_dump.sql
+
+echo "Creatting dump for ${PGHOST}..."
+
+pg_dumpall -Oxvf /backup/postgres_dump.sql
+
+echo "Compressing files..."
+
+dir=daily
+
+if [ `date +%d` -eq 1 ]; then
+  dir=monthly
+elif [ `date +%w` -eq 0 ]; then
+  dir=weekly
+fi
+
+filename=$destination/$dir/backup_$(date +%Y-%m-%d).tar.gz
+
+mkdir -p $destination/$dir
+tar -zcpvf $filename /backup
+
+echo "Wrote file to $filename"
