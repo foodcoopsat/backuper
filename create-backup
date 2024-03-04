@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+global_exit=0
+
 function send_error_email () {
     echo "Subject: Failed creating foodcoops backup on: $(date)" > /tmp/error.txt
     echo "From: backuper@foodcoops.at" >> /tmp/error.txt
@@ -19,20 +21,51 @@ find $destination/daily -maxdepth 1 -mtime +7 -type f -exec rm -v {} \;
 find $destination/weekly -maxdepth 1 -mtime +31 -type f -exec rm -v {} \;
 find $destination/monthly -maxdepth 1 -mtime +365 -type f -exec rm -v {} \;
 
-echo "Creatting dump for ${MYSQLDUMP_HOST}..."
 
-mysqldump -h"$MYSQLDUMP_HOST" \
-  -u"$MYSQLDUMP_USER" \
-  -p"$MYSQLDUMP_PASSWORD" \
-  --single-transaction \
-  --order-by-primary \
-  --compress \
-  --all-databases \
-  --verbose > /backup/mysql_dump.sql
+# dump the postgres databases
+echo "Starting to dump postgresql databases"
+mkdir -p /backup/postgresql_dbs
+pg_dumpall --globals-only -Fc -Oxf /backup/postgresql_dbs/globals.pgc
+databases=$(psql -U postgres -l -t | cut -d'|' -f1 | sed -e 's/ //g' -e '/^$/d')
+for db_name in $databases; do  
+   pg_dump -U postgres -Fc -Oxf ${db_name} /backup/postgresql_dbs/pg_dump_${db_name}.pgc
+   dump_single_exit=$?
+   echo "$(date "+%m-%d-%Y %T") : DUMP db ${db_name} finished with ${dump_single_exit}"
+   global_exit=$(( dump_single_exit > global_exit ? dump_single_exit : global_exit ))
+done
 
-echo "Creatting dump for ${PGHOST}..."
+# dump mysql dbs
+echo "Starting to dump mariadb databases"
+mkdir -p /backup/mysql_dbs
+for db_name in $(mysql -h"$MYSQLDUMP_HOST" -u"$MYSQLDUMP_USER" -p"$MYSQLDUMP_PASSWORD" -e "show databases;" | tail -n +2);
+do
+    mysqldump \
+        -h"$MYSQLDUMP_HOST" \
+        -u"$MYSQLDUMP_USER" \
+        -p"$MYSQLDUMP_PASSWORD" \
+        --single-transaction \
+        --order-by-primary \
+        ${db_name} > /backup/mysql_dbs/mysql_${db_name}_dump.sql
+    dump_single_exit=$?
+    echo "$(date "+%m-%d-%Y %T") : DUMP db ${db_name} finished with ${dump_single_exit}" 
+    global_exit=$(( dump_single_exit > global_exit ? dump_single_exit : global_exit ))
+done
 
-pg_dumpall -Oxvf /backup/postgres_dump.sql
+
+# echo "Creatting dump for ${MYSQLDUMP_HOST}..."
+#
+# mysqldump -h"$MYSQLDUMP_HOST" \
+#   -u"$MYSQLDUMP_USER" \
+#   -p"$MYSQLDUMP_PASSWORD" \
+#   --single-transaction \
+#   --order-by-primary \
+#   --compress \
+#   --all-databases \
+#   --verbose > /backup/mysql_dump.sql
+#
+# echo "Creatting dump for ${PGHOST}..."
+#
+# pg_dumpall -Oxvf /backup/postgres_dump.sql
 
 echo "Compressing files..."
 
