@@ -51,7 +51,7 @@ tar -zcpvf $filename /backup
 
 echo "Wrote file to $filename"
 
-remote_destination=/backup_storage
+remote_destination=/backup_storage_remote
 
 echo "Removing old remote backups..."
 
