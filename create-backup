@@ -25,13 +25,16 @@ find $destination/monthly -maxdepth 1 -mtime +365 -type f -exec rm -v {} \;
 # dump the postgres databases
 echo "Starting to dump postgresql databases"
 mkdir -p /backup/postgresql_dbs
-pg_dumpall --globals-only -Fc -Oxf /backup/postgresql_dbs/globals.pgc
+pg_dumpall --globals-only -Oxf /backup/postgresql_dbs/globals.sql
 databases=$(psql -U postgres -l -t | cut -d'|' -f1 | sed -e 's/ //g' -e '/^$/d')
 for db_name in $databases; do  
-   pg_dump -U postgres -Fc -Oxf ${db_name} /backup/postgresql_dbs/pg_dump_${db_name}.pgc
-   dump_single_exit=$?
-   echo "$(date "+%m-%d-%Y %T") : DUMP db ${db_name} finished with ${dump_single_exit}"
-   global_exit=$(( dump_single_exit > global_exit ? dump_single_exit : global_exit ))
+    if [ "$db_name" != "template0" ] && [ "$db_name" != "template1" ] && [ "$db_name" != "template_postgis" ]; then    
+        echo "$(date "+%m-%d-%Y %T") : Starting DUMP for db ${db_name}"
+        pg_dump -U postgres -Fc -Ox ${db_name} > /backup/postgresql_dbs/pg_dump_${db_name}.pgc
+        dump_single_exit=$?
+        echo "$(date "+%m-%d-%Y %T") : DUMP db ${db_name} finished with ${dump_single_exit}"
+        global_exit=$(( dump_single_exit > global_exit ? dump_single_exit : global_exit ))
+    fi
 done
 
 # dump mysql dbs
@@ -39,6 +42,7 @@ echo "Starting to dump mariadb databases"
 mkdir -p /backup/mysql_dbs
 for db_name in $(mysql -h"$MYSQLDUMP_HOST" -u"$MYSQLDUMP_USER" -p"$MYSQLDUMP_PASSWORD" -e "show databases;" | tail -n +2);
 do
+   echo "$(date "+%m-%d-%Y %T") : Starting DUMP for db ${db_name}"
     mysqldump \
         -h"$MYSQLDUMP_HOST" \
         -u"$MYSQLDUMP_USER" \
@@ -51,6 +55,10 @@ do
     global_exit=$(( dump_single_exit > global_exit ? dump_single_exit : global_exit ))
 done
 
+echo "Creating redis dump"
+redis-cli -h redis save
+mkdir -p /backup/redis
+cp /redis_data/dump.rdb /backup/redis/
 
 # echo "Creatting dump for ${MYSQLDUMP_HOST}..."
 #
@@ -80,7 +88,7 @@ fi
 filename=$destination/$dir/backup_$(date +%Y-%m-%d).tar.gz
 
 mkdir -p $destination/$dir
-tar -zcpvf $filename /backup
+tar -zcpf $filename /backup
 
 echo "Wrote file to $filename"
 
@@ -99,3 +107,18 @@ echo "Copy backup to remote"
 cp $filename $remote_destination/$dir/
 
 echo "Copied backup to remote"
+
+echo "Create borg backup"
+
+export BORG_PASSPHRASE="$(cat /run/secrets/borg_passphrase)"
+
+borg create --compression lz4 ::'{hostname}-{now}' /backup \
+    --exclude /backup/nextcloud_data/nextcloud.log
+
+echo "Prune old borg backup"
+borg prune                          \
+    --prefix '{hostname}-'          \
+    --keep-daily    6               \
+    --keep-weekly   3               \
+    --keep-monthly  5               \
+
