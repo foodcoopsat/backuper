@@ -1,6 +1,16 @@
 #!/bin/sh
 set -e
 
+function send_error_email () {
+    echo "Subject: Failed creating foodcoops backup on: $(date)" > /tmp/error.txt
+    echo "From: backuper@foodcoops.at" >> /tmp/error.txt
+    echo "" >> /tmp/error.txt
+    echo "Failed creating backup on: $(date)" >> /tmp/error.txt
+    sendmail -v -S mail.foodcoops.at $RECIPIENT_ADDRESS_ERROR -f backuper@foodcoops.at < /tmp/error.txt
+}
+
+trap send_error_email ERR
+
 destination=/backup_storage
 
 echo "Removing old backups..."
@@ -40,3 +50,19 @@ mkdir -p $destination/$dir
 tar -zcpvf $filename /backup
 
 echo "Wrote file to $filename"
+
+remote_destination=/backup_storage
+
+echo "Removing old remote backups..."
+
+find $remote_destination/daily -maxdepth 1 -mtime +7 -type f -exec rm -v {} \;
+find $remote_destination/weekly -maxdepth 1 -mtime +31 -type f -exec rm -v {} \;
+find $remote_destination/monthly -maxdepth 1 -mtime +365 -type f -exec rm -v {} \;
+
+mkdir -p $remote_destination/$dir
+
+echo "Copy backup to remote"
+
+cp $filename $remote_destination/$dir/
+
+echo "Copied backup to remote"
