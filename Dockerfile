@@ -2,7 +2,7 @@ FROM alpine:3.17
 
 RUN apk add --no-cache \
   mariadb-client \
-  postgresql-client \
+  postgresql-client
 
 COPY create-backup /etc/periodic/daily
 
