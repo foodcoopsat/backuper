@@ -4,7 +4,7 @@ RUN apk add --no-cache \
   mariadb-client \
   postgresql-client \
   borgbackup \
-  redis-cli
+  redis
 
 COPY create-backup /etc/periodic/daily
 
