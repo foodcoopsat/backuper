@@ -16,6 +16,9 @@ trap send_error_email ERR
 destination=/backup_storage
 remote_destination=/backup_storage_remote
 
+export PGPASSWORD="$(cat /run/secrets/postgres_password)"
+export MYSQLDUMP_PASSWORD="$(cat /run/secrets/mariadb_root_password)"
+
 echo "$(date "+%m-%d-%Y %T"): Removing old backups..."
 
 find $destination/daily -maxdepth 1 -mtime +7 -type f -exec rm -v {} \;
