@@ -8,4 +8,7 @@ RUN apk add --no-cache \
 
 COPY create-backup /etc/periodic/daily
 
-CMD ["busybox", "crond", "-f", "-l", "0", "-L", "/dev/stdout"]
+
+RUN ln -sf /dev/stdout /var/log/borgbackup.log
+
+CMD ["busybox", "crond", "-f", "-l", "0", "-L", "/var/log/crond.log"]

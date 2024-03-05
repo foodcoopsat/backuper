@@ -1,7 +1,12 @@
 #!/bin/sh
 set -e
 
-global_exit=0
+LOGFILE="/var/log/borgbackup.log"
+
+function log () {
+    echo "$(date "+%m-%d-%Y %T"): $1" 2>1 | tee -a $LOGFILE
+}
+
 
 function send_error_email () {
     echo "Subject: Failed creating foodcoops backup on: $(date)" > /tmp/error.txt
@@ -19,34 +24,26 @@ remote_destination=/backup_storage_remote
 export PGPASSWORD="$(cat /run/secrets/postgres_password)"
 export MYSQLDUMP_PASSWORD="$(cat /run/secrets/mariadb_root_password)"
 
-echo "$(date "+%m-%d-%Y %T"): Removing old backups..."
+log "Starting backup --------------------"
 
-find $destination/daily -maxdepth 1 -mtime +7 -type f -exec rm -v {} \;
-find $destination/weekly -maxdepth 1 -mtime +31 -type f -exec rm -v {} \;
-find $destination/monthly -maxdepth 1 -mtime +365 -type f -exec rm -v {} \;
-
-
-# dump the postgres databases
-echo "$(date "+%m-%d-%Y %T"): Starting to dump postgresql databases"
+log "Starting to dump postgresql databases"
 mkdir -p /backup/postgresql_dbs
 pg_dumpall --globals-only -Oxf /backup/postgresql_dbs/globals.sql
 databases=$(psql -U postgres -l -t | cut -d'|' -f1 | sed -e 's/ //g' -e '/^$/d')
 for db_name in $databases; do  
     if [ "$db_name" != "template0" ] && [ "$db_name" != "template1" ] && [ "$db_name" != "template_postgis" ]; then    
-        echo "$(date "+%m-%d-%Y %T") : Starting DUMP for db ${db_name}"
+        log "Starting DUMP for db ${db_name}"
         pg_dump -U postgres -Fc -Ox ${db_name} > /backup/postgresql_dbs/pg_dump_${db_name}.pgc
         dump_single_exit=$?
-        echo "$(date "+%m-%d-%Y %T") : DUMP db ${db_name} finished with ${dump_single_exit}"
-        global_exit=$(( dump_single_exit > global_exit ? dump_single_exit : global_exit ))
+        log "DUMP db ${db_name} finished with ${dump_single_exit}"
     fi
 done
 
-# dump mysql dbs
-echo "$(date "+%m-%d-%Y %T"): Starting to dump mariadb databases"
+log "Starting to dump mariadb databases"
 mkdir -p /backup/mysql_dbs
 for db_name in $(mysql -h"$MYSQLDUMP_HOST" -u"$MYSQLDUMP_USER" -p"$MYSQLDUMP_PASSWORD" -e "show databases;" | tail -n +2);
 do
-   echo "$(date "+%m-%d-%Y %T") : Starting DUMP for db ${db_name}"
+    log "Starting DUMP for db ${db_name}"
     mysqldump \
         -h"$MYSQLDUMP_HOST" \
         -u"$MYSQLDUMP_USER" \
@@ -55,88 +52,41 @@ do
         --order-by-primary \
         ${db_name} > /backup/mysql_dbs/mysql_${db_name}_dump.sql
     dump_single_exit=$?
-    echo "$(date "+%m-%d-%Y %T") : DUMP db ${db_name} finished with ${dump_single_exit}" 
-    global_exit=$(( dump_single_exit > global_exit ? dump_single_exit : global_exit ))
+    log "DUMP db ${db_name} finished with ${dump_single_exit}" 
 done
 
-echo "$(date "+%m-%d-%Y %T"): Creating redis dump"
+log "Creating redis dump"
 redis-cli -h redis save
 mkdir -p /backup/redis
 cp /redis_data/dump.rdb /backup/redis/
+log "Done creating redis dump"
 
-# echo "Creatting dump for ${MYSQLDUMP_HOST}..."
-#
-# mysqldump -h"$MYSQLDUMP_HOST" \
-#   -u"$MYSQLDUMP_USER" \
-#   -p"$MYSQLDUMP_PASSWORD" \
-#   --single-transaction \
-#   --order-by-primary \
-#   --compress \
-#   --all-databases \
-#   --verbose > /backup/mysql_dump.sql
-#
-# echo "Creatting dump for ${PGHOST}..."
-#
-# pg_dumpall -Oxvf /backup/postgres_dump.sql
-
-# echo "$(date "+%m-%d-%Y %T"): Compressing files..."
-#
-# dir=daily
-#
-# if [ `date +%d` -eq 1 ]; then
-#   dir=monthly
-# elif [ `date +%w` -eq 0 ]; then
-#   dir=weekly
-# fi
-#
-# filename=$destination/$dir/backup_$(date +%Y-%m-%d).tar.gz
-#
-# mkdir -p $destination/$dir
-# tar -zcpf $filename /backup
-#
-# echo "$(date "+%m-%d-%Y %T"): Wrote file to $filename"
-#
-# echo "$(date "+%m-%d-%Y %T"): Removing old remote backups..."
-#
-# find $remote_destination/daily -maxdepth 1 -mtime +7 -type f -exec rm -v {} \;
-# find $remote_destination/weekly -maxdepth 1 -mtime +31 -type f -exec rm -v {} \;
-# find $remote_destination/monthly -maxdepth 1 -mtime +365 -type f -exec rm -v {} \;
-#
-# mkdir -p $remote_destination/$dir
-#
-# echo "$(date "+%m-%d-%Y %T"): Copy backup to remote"
-#
-# cp $filename $remote_destination/$dir/
-#
-# echo "$(date "+%m-%d-%Y %T"): Copied backup to remote"
-#
-echo "$(date "+%m-%d-%Y %T"): Create borg backup"
+log "Create borg backup"
 export BORG_PASSPHRASE="$(cat /run/secrets/borg_passphrase)"
-
 export BORG_REPO=/backup_storage/borgrepo
 
 borg create --compression lz4 ::'{hostname}-{now}' /backup \
     --exclude /backup/nextcloud_data/nextcloud.log
 
-echo "$(date "+%m-%d-%Y %T"): Prune old borg backup"
-borg prune                          \
-    --global-archives '{hostname}-*'          \
-    --keep-daily    6               \
-    --keep-weekly   3               \
-    --keep-monthly  5               \
+log "Prune old borg backup"
+borg prune \
+    --glob-archives '{hostname}-*' \
+    --keep-daily 6 \
+    --keep-weekly 3 \
+    --keep-monthly 5 \
 
-echo "$(date "+%m-%d-%Y %T"): Create remote borg backup"
+log "Create remote borg backup"
 
 export BORG_REPO=/backup_storage_remote/borgrepo
 
 borg create --compression lz4 ::'{hostname}-{now}' /backup \
     --exclude /backup/nextcloud_data/nextcloud.log
 
-echo "$(date "+%m-%d-%Y %T"): Prune remote old borg backup"
-borg prune                          \
-    --global-archives '{hostname}-*'          \
-    --keep-daily    6               \
-    --keep-weekly   3               \
-    --keep-monthly  5               \
+log "Prune remote old borg backup"
+borg prune \
+    --glob-archives '{hostname}-*' \
+    --keep-daily 6 \
+    --keep-weekly 3 \
+    --keep-monthly 5 \
 
-echo "$(date "+%m-%d-%Y %T"): Backup finished"
+log "Backup finished ----------------------"
