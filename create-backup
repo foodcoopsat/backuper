@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-LOGFILE="/var/logs/borg/borgbackup.log"
+LOGFILE="/var/log/borg/borgbackup.log"
 
 function log () {
     echo "$(date "+%m-%d-%Y %T"): $1" 2>1 | tee -a $LOGFILE
