@@ -73,7 +73,9 @@ borg prune \
     --glob-archives '{hostname}-*' \
     --keep-daily 6 \
     --keep-weekly 3 \
-    --keep-monthly 5 \
+    --keep-monthly 5
+
+borg compact
 
 log "Create remote borg backup"
 
@@ -88,5 +90,7 @@ borg prune \
     --keep-daily 6 \
     --keep-weekly 3 \
     --keep-monthly 5 \
+
+borg compact
 
 log "Backup finished ----------------------"
