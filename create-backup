@@ -68,14 +68,16 @@ export BORG_REPO=/backup_storage/borgrepo
 borg create --compression lz4 ::'{hostname}-{now}' /backup \
     --exclude /backup/nextcloud_data/nextcloud.log
 
-log "Prune old borg backup"
+log "Prune borg backup"
 borg prune \
-    --glob-archives '{hostname}-*' \
     --keep-daily 6 \
     --keep-weekly 3 \
-    --keep-monthly 5
+    --keep-monthly 3
 
+log "Compact borg backup"
 borg compact
+
+log "Backup to local finished ----------------------"
 
 log "Create remote borg backup"
 
@@ -84,13 +86,13 @@ export BORG_REPO=/backup_storage_remote/borgrepo
 borg create --compression lz4 ::'{hostname}-{now}' /backup \
     --exclude /backup/nextcloud_data/nextcloud.log
 
-log "Prune remote old borg backup"
+log "Prune remote borg backup"
 borg prune \
-    --glob-archives '{hostname}-*' \
     --keep-daily 6 \
     --keep-weekly 3 \
-    --keep-monthly 5 \
+    --keep-monthly 3 \
 
+log "Compact remote borg backup"
 borg compact
 
-log "Backup finished ----------------------"
+log "Backup to remote finished ----------------------"
