@@ -41,10 +41,11 @@ done
 
 log "Starting to dump mariadb databases"
 mkdir -p /backup/mysql_dbs
-for db_name in $(mariadb -h"$MYSQLDUMP_HOST" -u"$MYSQLDUMP_USER" -p"$MYSQLDUMP_PASSWORD" -e "show databases;" | tail -n +2);
+for db_name in $(mariadb --skip-ssl -h"$MYSQLDUMP_HOST" -u"$MYSQLDUMP_USER" -p"$MYSQLDUMP_PASSWORD" -e "show databases;" | tail -n +2);
 do
     log "Starting DUMP for db ${db_name}"
-    marariadb--dump \
+    marariadb-dump \
+        --skip-ssl \
         -h"$MYSQLDUMP_HOST" \
         -u"$MYSQLDUMP_USER" \
         -p"$MYSQLDUMP_PASSWORD" \
